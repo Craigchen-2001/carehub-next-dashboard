@@ -93,3 +93,27 @@ export const postNote = async (id: string, author: string, text: string) => {
   const json = await res.json();
   return NoteSchema.parse(json);
 };
+
+export const postAppointment = async (
+  id: string,
+  payload: {
+    startTime: string;
+    endTime: string;
+    providerId: string;
+    status: "scheduled" | "completed" | "cancelled" | "no-show";
+    type: "in-person" | "telehealth";
+  }
+) => {
+  await withLatency();
+  maybeFail(0.05);
+
+  const res = await fetch(`/api/patients/${id}/appointments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  const json = await res.json();
+  return AppointmentSchema.parse(json);
+};

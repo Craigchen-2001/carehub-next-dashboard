@@ -8,7 +8,9 @@ import {
   fetchNotes,
   fetchPatient,
   fetchVitals,
+  postAppointment,
   postNote,
+  type Appointment,
   type Note,
 } from "@/lib/apiPatientDetail";
 import { SectionBoundary } from "@/components/SectionBoundary";
@@ -21,6 +23,22 @@ const TABS: TabKey[] = ["overview", "appointments", "vitals", "notes"];
 const formatDate = (s: string) => {
   const d = new Date(s);
   return d.toLocaleString();
+};
+
+const toLocalInputValue = (iso: string) => {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+};
+
+const localInputToIso = (local: string) => {
+  const d = new Date(local);
+  return d.toISOString();
 };
 
 export default function PatientDetailPage() {
@@ -82,6 +100,58 @@ export default function PatientDetailPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notes", id] });
+    },
+  });
+
+  const nowLocal = useMemo(() => toLocalInputValue(new Date().toISOString()), []);
+
+  const [apptStartLocal, setApptStartLocal] = useState(nowLocal);
+  const [apptMinutes, setApptMinutes] = useState("30");
+  const [apptType, setApptType] = useState<"in-person" | "telehealth">("in-person");
+  const [apptStatus, setApptStatus] = useState<"scheduled" | "completed" | "cancelled" | "no-show">("scheduled");
+
+  const createApptMut = useMutation({
+    mutationFn: async () => {
+      const startIso = localInputToIso(apptStartLocal);
+      const start = new Date(startIso);
+      const end = new Date(start.getTime() + Number(apptMinutes) * 60 * 1000);
+
+      const providerId = patientQ.data?.providerId || "provider-1";
+
+      return postAppointment(id, {
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        providerId,
+        status: apptStatus,
+        type: apptType,
+      });
+    },
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["appointments", id] });
+      const prev = qc.getQueryData<Appointment[]>(["appointments", id]) || [];
+
+      const startIso = localInputToIso(apptStartLocal);
+      const start = new Date(startIso);
+      const end = new Date(start.getTime() + Number(apptMinutes) * 60 * 1000);
+
+      const optimistic: Appointment = {
+        id: `optimistic-${Date.now()}`,
+        patientId: id,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        providerId: patientQ.data?.providerId || "provider-1",
+        status: apptStatus,
+        type: apptType,
+      };
+
+      qc.setQueryData<Appointment[]>(["appointments", id], [optimistic, ...prev]);
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["appointments", id], ctx.prev);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments", id] });
     },
   });
 
@@ -170,8 +240,82 @@ export default function PatientDetailPage() {
       {activeTab === "appointments" && (
         <SectionBoundary title="Appointments">
           <div className="rounded-lg border p-4">
+            <div className="mb-4 rounded-lg border p-4">
+              <div className="text-sm font-medium">Create appointment</div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs text-gray-600">Start time</div>
+                  <input
+                    className="rounded-md border px-3 py-2 text-sm"
+                    type="datetime-local"
+                    value={apptStartLocal}
+                    onChange={(e) => setApptStartLocal(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs text-gray-600">Duration</div>
+                  <select
+                    className="rounded-md border px-3 py-2 text-sm"
+                    value={apptMinutes}
+                    onChange={(e) => setApptMinutes(e.target.value)}
+                  >
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">60 min</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs text-gray-600">Type</div>
+                  <select
+                    className="rounded-md border px-3 py-2 text-sm"
+                    value={apptType}
+                    onChange={(e) => setApptType(e.target.value as "in-person" | "telehealth")}
+                  >
+                    <option value="in-person">in-person</option>
+                    <option value="telehealth">telehealth</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs text-gray-600">Status</div>
+                  <select
+                    className="rounded-md border px-3 py-2 text-sm"
+                    value={apptStatus}
+                    onChange={(e) => setApptStatus(e.target.value as "scheduled" | "completed" | "cancelled" | "no-show")}
+                  >
+                    <option value="scheduled">scheduled</option>
+                    <option value="completed">completed</option>
+                    <option value="cancelled">cancelled</option>
+                    <option value="no-show">no-show</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                  disabled={createApptMut.isPending || patientQ.isLoading}
+                  onClick={() => createApptMut.mutate()}
+                >
+                  Create
+                </button>
+                <button className="rounded-md border px-3 py-2 text-sm" onClick={() => apptQ.refetch()}>
+                  Refresh list
+                </button>
+              </div>
+
+              {createApptMut.isError && (
+                <div className="mt-2 text-sm text-gray-600">{(createApptMut.error as Error).message}</div>
+              )}
+            </div>
+
             {apptQ.isLoading && <div className="text-sm text-gray-600">Loading…</div>}
             {apptQ.isError && <div className="text-sm text-gray-600">{(apptQ.error as Error).message}</div>}
+
             {apptQ.data && (
               <div className="space-y-2">
                 {apptQ.data.map((a) => (
