@@ -37,6 +37,7 @@ export const patients: Patient[] = Array.from({ length: 50 }).map((_, i) => {
   const providerId = providers[seed % providers.length].id;
 
   return {
+
     id: `pat-${seed}`,
     firstName: seed % 3 === 0 ? "Wei" : seed % 3 === 1 ? "Chi" : "Alex",
     lastName: `Patient${seed}`,
@@ -46,5 +47,6 @@ export const patients: Patient[] = Array.from({ length: 50 }).map((_, i) => {
     providerId,
     hasUpcoming: seed % 4 !== 0,
     riskLevel: riskLevels[seed % riskLevels.length],
+    
   };
-});
+}); 
