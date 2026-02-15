@@ -26,10 +26,10 @@ const sortValue = (p: Patient, key: string) => {
   if (key === "dob") return p.dob;
   if (key === "mrn") return p.mrn;
   if (key === "status") return p.status;
-  if (key === "providerId") return p.providerId;
+  if (key === "provider") return p.providerId;
   if (key === "riskLevel") return p.riskLevel;
   if (key === "hasUpcoming") return p.hasUpcoming ? 1 : 0;
-  return (p as never)[key as never] ?? "";
+  return "";
 };
 
 export async function GET(req: NextRequest) {
@@ -84,12 +84,9 @@ export async function GET(req: NextRequest) {
     filtered.sort((a, b) => {
       const av = sortValue(a, sortBy);
       const bv = sortValue(b, sortBy);
-
-      if (typeof av === "number" && typeof bv === "number") return av - bv;
-      return String(av).localeCompare(String(bv));
+      const cmp = String(av).localeCompare(String(bv));
+      return sortOrder === "desc" ? -cmp : cmp;
     });
-
-    if (sortOrder === "desc") filtered.reverse();
   }
 
   const total = filtered.length;
@@ -97,15 +94,9 @@ export async function GET(req: NextRequest) {
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * limit;
   const end = start + limit;
-  const data = filtered.slice(start, end);
 
   return NextResponse.json({
-    data,
-    pagination: {
-      page: safePage,
-      limit,
-      total,
-      totalPages,
-    },
+    data: filtered.slice(start, end),
+    pagination: { page: safePage, limit, total, totalPages },
   });
 }
