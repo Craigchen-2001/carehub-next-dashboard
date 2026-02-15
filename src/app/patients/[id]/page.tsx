@@ -12,6 +12,7 @@ import {
   type Note,
 } from "@/lib/apiPatientDetail";
 import { SectionBoundary } from "@/components/SectionBoundary";
+import VitalsChart from "@/components/VitalsChart";
 
 type TabKey = "overview" | "appointments" | "vitals" | "notes";
 
@@ -152,7 +153,9 @@ export default function PatientDetailPage() {
                 {vitalsQ.data && vitalsQ.data.length > 0 ? (
                   <div className="space-y-1">
                     <div>HR: {vitalsQ.data[vitalsQ.data.length - 1].heartRate}</div>
-                    <div>BP: {vitalsQ.data[vitalsQ.data.length - 1].systolic}/{vitalsQ.data[vitalsQ.data.length - 1].diastolic}</div>
+                    <div>
+                      BP: {vitalsQ.data[vitalsQ.data.length - 1].systolic}/{vitalsQ.data[vitalsQ.data.length - 1].diastolic}
+                    </div>
                     <div>SpO2: {vitalsQ.data[vitalsQ.data.length - 1].oxygenSat}</div>
                   </div>
                 ) : (
@@ -173,8 +176,12 @@ export default function PatientDetailPage() {
               <div className="space-y-2">
                 {apptQ.data.map((a) => (
                   <div key={a.id} className="rounded-md border p-3 text-sm">
-                    <div className="font-medium">{a.type} · {a.status}</div>
-                    <div className="text-gray-600">{formatDate(a.startTime)} - {formatDate(a.endTime)}</div>
+                    <div className="font-medium">
+                      {a.type} · {a.status}
+                    </div>
+                    <div className="text-gray-600">
+                      {formatDate(a.startTime)} - {formatDate(a.endTime)}
+                    </div>
                     <div className="text-gray-600">Provider: {a.providerId}</div>
                   </div>
                 ))}
@@ -189,32 +196,8 @@ export default function PatientDetailPage() {
           <div className="rounded-lg border p-4">
             {vitalsQ.isLoading && <div className="text-sm text-gray-600">Loading…</div>}
             {vitalsQ.isError && <div className="text-sm text-gray-600">{(vitalsQ.error as Error).message}</div>}
-            {vitalsQ.data && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2">Time</th>
-                      <th className="px-3 py-2">HR</th>
-                      <th className="px-3 py-2">BP</th>
-                      <th className="px-3 py-2">Temp C</th>
-                      <th className="px-3 py-2">SpO2</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vitalsQ.data.slice(-10).reverse().map((v) => (
-                      <tr key={v.ts} className="border-b last:border-b-0">
-                        <td className="px-3 py-2">{formatDate(v.ts)}</td>
-                        <td className="px-3 py-2">{v.heartRate}</td>
-                        <td className="px-3 py-2">{v.systolic}/{v.diastolic}</td>
-                        <td className="px-3 py-2">{v.temperatureC.toFixed(1)}</td>
-                        <td className="px-3 py-2">{v.oxygenSat}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {vitalsQ.data && vitalsQ.data.length > 0 && <VitalsChart vitals={vitalsQ.data} />}
+            {vitalsQ.data && vitalsQ.data.length === 0 && <div className="text-sm text-gray-600">No vitals</div>}
           </div>
         </SectionBoundary>
       )}
