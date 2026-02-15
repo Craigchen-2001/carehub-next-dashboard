@@ -114,7 +114,7 @@ export default function SchedulePage() {
         provider: providerId || undefined,
         room: room || undefined,
       }),
-    retry: 2,
+    retry: 0,
   });
 
   const days = useMemo(() => {
@@ -131,6 +131,41 @@ export default function SchedulePage() {
       map.set(d, [...prev, a]);
     });
     return map;
+  }, [apptsQ.data]);
+
+  const conflictIds = useMemo(() => {
+    const appts = (apptsQ.data || []).slice();
+    appts.sort((a, b) => (a.startTime < b.startTime ? -1 : 1));
+
+    const set = new Set<string>();
+    const byProvider = new Map<string, Appointment[]>();
+
+    for (const a of appts) {
+      const prev = byProvider.get(a.providerId) || [];
+      byProvider.set(a.providerId, [...prev, a]);
+    }
+
+    for (const [, list] of byProvider) {
+      const sorted = list.slice().sort((a, b) => (a.startTime < b.startTime ? -1 : 1));
+      for (let i = 0; i < sorted.length; i++) {
+        const cur = sorted[i];
+        const curS = new Date(cur.startTime).getTime();
+        const curE = new Date(cur.endTime).getTime();
+        for (let j = i + 1; j < sorted.length; j++) {
+          const nxt = sorted[j];
+          const nxtS = new Date(nxt.startTime).getTime();
+          const nxtE = new Date(nxt.endTime).getTime();
+          if (nxtS >= curE) break;
+          const overlap = curS < nxtE && nxtS < curE;
+          if (overlap) {
+            set.add(cur.id);
+            set.add(nxt.id);
+          }
+        }
+      }
+    }
+
+    return set;
   }, [apptsQ.data]);
 
   const isToday = (d: Date) => startOfDay(d).getTime() === startOfDay(new Date()).getTime();
@@ -239,7 +274,15 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {apptsQ.isError && <div className="mt-3 text-sm text-gray-600">{(apptsQ.error as Error).message}</div>}
+        {apptsQ.isError && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+            <div className="text-gray-700">{(apptsQ.error as Error).message}</div>
+            <button className="rounded-md border px-3 py-2 text-sm" onClick={() => apptsQ.refetch()}>
+              Retry
+            </button>
+          </div>
+        )}
+
         {apptsQ.isLoading && <div className="mt-3 text-sm text-gray-600">Loading…</div>}
       </div>
 
@@ -259,7 +302,7 @@ export default function SchedulePage() {
                   {items.map((a) => (
                     <div
                       key={a.id}
-                      className="cursor-pointer rounded-md border p-2 text-sm"
+                      className={`cursor-pointer rounded-md border p-2 text-sm ${conflictIds.has(a.id) ? "border-red-500" : ""}`}
                       onClick={() => {
                         setSelected(a as unknown as PanelAppointment);
                         setPanelOpen(true);
@@ -273,6 +316,7 @@ export default function SchedulePage() {
                       <div className="text-gray-600">
                         {a.providerId} · {a.room}
                       </div>
+                      {conflictIds.has(a.id) && <div className="mt-1 text-xs text-red-600">Conflict</div>}
                     </div>
                   ))}
                 </div>
