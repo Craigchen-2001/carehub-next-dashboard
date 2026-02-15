@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addNote, getPatientById, listNotes } from "@/lib/mockPatientDetail";
+import { addNotification } from "@/lib/mockNotifications";
 
 const ParamsSchema = z.object({ id: z.string().min(1) });
 const BodySchema = z.object({ author: z.string().min(1), text: z.string().min(1) });
@@ -29,5 +30,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!body.success) return NextResponse.json({ message: "Invalid body", issues: body.error.issues }, { status: 400 });
 
   const created = addNote(p.id, body.data.author, body.data.text);
+
+  addNotification({
+    type: "message",
+    title: "New note added",
+    body: `${p.firstName} ${p.lastName} · ${body.data.author}`,
+  });
+
   return NextResponse.json(created, { status: 201 });
 }

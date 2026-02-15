@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useToast } from "@/components/ToastProvider";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,6 +47,8 @@ export default function PatientDetailPage() {
   const sp = useSearchParams();
   const params = useParams<{ id: string }>();
   const id = params.id;
+
+  const toast = useToast();
 
   const tab = (sp.get("tab") as TabKey) || "overview";
   const activeTab: TabKey = TABS.includes(tab) ? tab : "overview";
@@ -99,6 +102,7 @@ export default function PatientDetailPage() {
       if (ctx?.prev) qc.setQueryData(["notes", id], ctx.prev);
     },
     onSuccess: () => {
+      toast.push({ title: "Note added" });
       qc.invalidateQueries({ queryKey: ["notes", id] });
     },
   });
@@ -151,6 +155,7 @@ export default function PatientDetailPage() {
       if (ctx?.prev) qc.setQueryData(["appointments", id], ctx.prev);
     },
     onSuccess: () => {
+      toast.push({ title: "Appointment created" });
       qc.invalidateQueries({ queryKey: ["appointments", id] });
     },
   });

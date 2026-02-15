@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addAppointment, getPatientById, listAppointments } from "@/lib/mockPatientDetail";
+import { addNotification } from "@/lib/mockNotifications";
 
 const ParamsSchema = z.object({ id: z.string().min(1) });
 
@@ -36,5 +37,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!body.success) return NextResponse.json({ message: "Invalid body", issues: body.error.issues }, { status: 400 });
 
   const created = addAppointment(p.id, body.data);
+
+  addNotification({
+    type: "appointment_update",
+    title: "Appointment created",
+    body: `${p.firstName} ${p.lastName} · ${created.type} · ${created.status}`,
+  });
+
   return NextResponse.json(created, { status: 201 });
 }
