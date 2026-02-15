@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import AppointmentSidePanel, { type Appointment as PanelAppointment } from "@/components/AppointmentSidePanel";
-import { updateAppointment } from "@/lib/apiSchedule";
+import AppointmentSidePanel, { type Appointment as PanelAppointment, type CreateAppointmentPayload } from "@/components/AppointmentSidePanel";
+import { createAppointment, updateAppointment } from "@/lib/apiSchedule";
 
 type Provider = {
   id: string;
@@ -77,6 +77,8 @@ export default function SchedulePage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [selected, setSelected] = useState<PanelAppointment | null>(null);
 
+  const [draftCreate, setDraftCreate] = useState<{ startIso: string; endIso: string } | null>(null);
+
   const range = useMemo(() => {
     const start = startOfDay(anchor);
     const days = view === "week" ? 7 : 1;
@@ -114,7 +116,7 @@ export default function SchedulePage() {
         provider: providerId || undefined,
         room: room || undefined,
       }),
-    retry: 0,
+    retry: 2,
   });
 
   const days = useMemo(() => {
@@ -194,6 +196,13 @@ export default function SchedulePage() {
     },
   });
 
+  const createMut = useMutation({
+    mutationFn: (payload: CreateAppointmentPayload) => createAppointment(payload),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] });
+    },
+  });
+
   return (
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -205,16 +214,10 @@ export default function SchedulePage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            className={`rounded-md border px-3 py-2 text-sm ${view === "week" ? "font-semibold" : ""}`}
-            onClick={() => setView("week")}
-          >
+          <button className={`rounded-md border px-3 py-2 text-sm ${view === "week" ? "font-semibold" : ""}`} onClick={() => setView("week")}>
             Week
           </button>
-          <button
-            className={`rounded-md border px-3 py-2 text-sm ${view === "day" ? "font-semibold" : ""}`}
-            onClick={() => setView("day")}
-          >
+          <button className={`rounded-md border px-3 py-2 text-sm ${view === "day" ? "font-semibold" : ""}`} onClick={() => setView("day")}>
             Day
           </button>
           <button className="rounded-md border px-3 py-2 text-sm" onClick={() => setAnchor(addDays(anchor, -7))}>
@@ -263,14 +266,24 @@ export default function SchedulePage() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-600">Refresh</div>
-            <button
-              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-              disabled={apptsQ.isFetching}
-              onClick={() => apptsQ.refetch()}
-            >
-              Refresh
-            </button>
+            <div className="text-xs text-gray-600">Actions</div>
+            <div className="flex gap-2">
+              <button className="rounded-md border px-3 py-2 text-sm disabled:opacity-50" disabled={apptsQ.isFetching} onClick={() => apptsQ.refetch()}>
+                Refresh
+              </button>
+              <button
+                className="rounded-md border px-3 py-2 text-sm"
+                onClick={() => {
+                  const start = new Date();
+                  const end = new Date(start.getTime() + 30 * 60 * 1000);
+                  setDraftCreate({ startIso: start.toISOString(), endIso: end.toISOString() });
+                  setSelected(null);
+                  setPanelOpen(true);
+                }}
+              >
+                Create
+              </button>
+            </div>
           </div>
         </div>
 
@@ -304,6 +317,7 @@ export default function SchedulePage() {
                       key={a.id}
                       className={`cursor-pointer rounded-md border p-2 text-sm ${conflictIds.has(a.id) ? "border-red-500" : ""}`}
                       onClick={() => {
+                        setDraftCreate(null);
                         setSelected(a as unknown as PanelAppointment);
                         setPanelOpen(true);
                       }}
@@ -329,11 +343,22 @@ export default function SchedulePage() {
       <AppointmentSidePanel
         open={panelOpen}
         appointment={selected}
-        onClose={() => setPanelOpen(false)}
+        onClose={() => {
+          setPanelOpen(false);
+          setDraftCreate(null);
+        }}
         onReschedule={({ id, startTime, endTime }) => {
           rescheduleMut.mutate({ id, startTime, endTime });
         }}
-        busy={rescheduleMut.isPending}
+        busy={rescheduleMut.isPending || createMut.isPending}
+        createMode={!!draftCreate}
+        defaultStartTime={draftCreate?.startIso || null}
+        defaultEndTime={draftCreate?.endIso || null}
+        onCreate={(payload) => {
+          createMut.mutate(payload);
+          setPanelOpen(false);
+          setDraftCreate(null);
+        }}
       />
     </div>
   );

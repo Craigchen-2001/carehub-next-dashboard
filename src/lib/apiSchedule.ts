@@ -1,6 +1,34 @@
+export type AppointmentType = "in-person" | "telehealth";
 export type AppointmentStatus = "scheduled" | "completed" | "cancelled" | "no-show";
 
-export async function updateAppointment(id: string, patch: { startTime: string; endTime: string }) {
+export type CreateAppointmentInput = {
+  patientId: string;
+  providerId: string;
+  room: string;
+  startTime: string;
+  endTime: string;
+  type: AppointmentType;
+  status: AppointmentStatus;
+};
+
+export type UpdateAppointmentInput = Partial<Pick<CreateAppointmentInput, "startTime" | "endTime" | "status" | "type" | "room" | "providerId">>;
+
+export async function createAppointment(input: CreateAppointmentInput) {
+  const res = await fetch("/api/appointments", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    throw new Error(j?.message || "Failed to create appointment");
+  }
+
+  return await res.json();
+}
+
+export async function updateAppointment(id: string, patch: UpdateAppointmentInput) {
   const res = await fetch(`/api/appointments/${id}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -9,9 +37,8 @@ export async function updateAppointment(id: string, patch: { startTime: string; 
 
   if (!res.ok) {
     const j = await res.json().catch(() => null);
-    const msg = j?.message || "Failed to update appointment";
-    throw new Error(msg);
+    throw new Error(j?.message || "Failed to update appointment");
   }
 
-  return res.json();
+  return await res.json();
 }

@@ -9,17 +9,29 @@ export type NotificationItem = {
   read: boolean;
 };
 
-let store: NotificationItem[] = [];
+type Store = {
+  items: NotificationItem[];
+};
+
+const g = globalThis as unknown as { __CAREHUB_NOTIFS__?: Store };
+
+function getStore(): Store {
+  if (!g.__CAREHUB_NOTIFS__) g.__CAREHUB_NOTIFS__ = { items: [] };
+  return g.__CAREHUB_NOTIFS__;
+}
 
 export function listNotifications() {
-  return store.slice().sort((a, b) => (a.ts < b.ts ? 1 : -1));
+  const s = getStore();
+  return s.items.slice().sort((a, b) => (a.ts < b.ts ? 1 : -1));
 }
 
 export function unreadCount() {
-  return store.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
+  const s = getStore();
+  return s.items.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
 }
 
 export function addNotification(input: { type: NotificationType; title: string; body: string }) {
+  const s = getStore();
   const item: NotificationItem = {
     id: `ntf-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     ts: new Date().toISOString(),
@@ -28,13 +40,14 @@ export function addNotification(input: { type: NotificationType; title: string; 
     body: input.body,
     read: false,
   };
-  store = [item, ...store].slice(0, 50);
+  s.items = [item, ...s.items].slice(0, 50);
   return item;
 }
 
 export function markRead(id: string) {
+  const s = getStore();
   let changed = false;
-  store = store.map((n) => {
+  s.items = s.items.map((n) => {
     if (n.id !== id) return n;
     if (n.read) return n;
     changed = true;
@@ -45,11 +58,13 @@ export function markRead(id: string) {
 
 export function markAllRead() {
   const before = unreadCount();
-  store = store.map((n) => ({ ...n, read: true }));
+  const s = getStore();
+  s.items = s.items.map((n) => ({ ...n, read: true }));
   const after = unreadCount();
   return { before, after };
 }
 
 export function resetNotifications() {
-  store = [];
+  const s = getStore();
+  s.items = [];
 }
