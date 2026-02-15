@@ -63,6 +63,9 @@ const SkeletonRow = () => {
   return (
     <tr className="border-b last:border-b-0">
       <td className="px-3 py-2">
+        <div className="h-4 w-4 animate-pulse rounded bg-gray-200" />
+      </td>
+      <td className="px-3 py-2">
         <div className="h-4 w-48 animate-pulse rounded bg-gray-200" />
       </td>
       <td className="px-3 py-2">
@@ -84,12 +87,23 @@ const SkeletonRow = () => {
   );
 };
 
+const downloadJson = (items: unknown, filename: string) => {
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 export default function PatientsPage() {
   const router = useRouter();
   const sp = useSearchParams();
   const qc = useQueryClient();
 
   const qs = useMemo(() => buildQuery(new URLSearchParams(sp.toString())), [sp]);
+  const current = useMemo(() => new URLSearchParams(sp.toString()), [sp]);
 
   const q = useQuery({
     queryKey: ["patients", qs],
@@ -97,8 +111,6 @@ export default function PatientsPage() {
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
-
-  const current = useMemo(() => new URLSearchParams(sp.toString()), [sp]);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(current.toString());
@@ -134,18 +146,80 @@ export default function PatientsPage() {
     await q.refetch({ cancelRefetch: false });
   };
 
+  const [selectedById, setSelectedById] = useState<Record<string, Patient>>({});
+
+  const rows = q.data?.data || [];
+  const pageIds = rows.map((r) => r.id);
+  const selectedCount = Object.keys(selectedById).length;
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => !!selectedById[id]);
+
+  const toggleOne = (p: Patient) => {
+    setSelectedById((prev) => {
+      if (prev[p.id]) {
+        const next = { ...prev };
+        delete next[p.id];
+        return next;
+      }
+      return { ...prev, [p.id]: p };
+    });
+  };
+
+  const toggleAllPage = () => {
+    setSelectedById((prev) => {
+      const next = { ...prev };
+      const shouldSelect = !allPageSelected;
+      rows.forEach((p) => {
+        if (shouldSelect) next[p.id] = p;
+        else delete next[p.id];
+      });
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedById({});
+
+  const exportSelected = () => {
+    const items = Object.values(selectedById);
+    downloadJson(items, `patients_selected_${Date.now()}.json`);
+  };
+
+  const sendMessage = () => {
+    const items = Object.values(selectedById);
+    const names = items.slice(0, 5).map((p) => `${p.firstName} ${p.lastName}`).join(", ");
+    const suffix = items.length > 5 ? ` +${items.length - 5} more` : "";
+    alert(`Send message (mock)\nRecipients: ${items.length}\n${names}${suffix}`);
+  };
+
   return (
     <div className="mx-auto max-w-6xl p-6">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Patients</h1>
           <div className="mt-1 text-sm text-gray-600">
             {isLoadingUI ? "Loading" : q.isError ? "Error" : "Ready"}
           </div>
         </div>
-        <button className="rounded-md border px-3 py-2 text-sm" onClick={doRefresh}>
-          Refresh
-        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedCount > 0 && (
+            <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+              <span>Selected: {selectedCount}</span>
+              <button className="rounded-md border px-2 py-1" onClick={exportSelected}>
+                Export selected
+              </button>
+              <button className="rounded-md border px-2 py-1" onClick={sendMessage}>
+                Send message
+              </button>
+              <button className="rounded-md border px-2 py-1" onClick={clearSelection}>
+                Clear
+              </button>
+            </div>
+          )}
+
+          <button className="rounded-md border px-3 py-2 text-sm" onClick={doRefresh}>
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 rounded-lg border p-4">
@@ -259,6 +333,14 @@ export default function PatientsPage() {
           <table className="w-full text-left text-sm">
             <thead className="border-b bg-gray-50">
               <tr>
+                <th className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={toggleAllPage}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </th>
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">MRN</th>
                 <th className="px-3 py-2">DOB</th>
@@ -267,6 +349,7 @@ export default function PatientsPage() {
                 <th className="px-3 py-2">Upcoming</th>
               </tr>
             </thead>
+
             <tbody>
               {isLoadingUI && (
                 <>
@@ -280,7 +363,7 @@ export default function PatientsPage() {
 
               {!isLoadingUI && q.isError && (
                 <tr>
-                  <td className="px-3 py-8 text-center text-sm text-gray-600" colSpan={6}>
+                  <td className="px-3 py-8 text-center text-sm text-gray-600" colSpan={7}>
                     {(q.error as Error).message}
                   </td>
                 </tr>
@@ -288,7 +371,7 @@ export default function PatientsPage() {
 
               {!isLoadingUI && !q.isError && q.data && q.data.data.length === 0 && (
                 <tr>
-                  <td className="px-3 py-8 text-center text-sm text-gray-600" colSpan={6}>
+                  <td className="px-3 py-8 text-center text-sm text-gray-600" colSpan={7}>
                     No patients found
                   </td>
                 </tr>
@@ -303,6 +386,14 @@ export default function PatientsPage() {
                     className="cursor-pointer border-b hover:bg-gray-50 last:border-b-0"
                     onClick={() => router.push(`/patients/${p.id}?tab=overview`)}
                   >
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={!!selectedById[p.id]}
+                        onChange={() => toggleOne(p)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
                     <td className="px-3 py-2">{p.firstName} {p.lastName}</td>
                     <td className="px-3 py-2">{p.mrn}</td>
                     <td className="px-3 py-2">{p.dob}</td>
