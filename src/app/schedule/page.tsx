@@ -39,6 +39,10 @@ function formatDayLabel(d: Date) {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "2-digit", day: "2-digit" });
 }
 
+function formatTimeHM(d: Date) {
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatTimeRange(a: Appointment) {
   const s = new Date(a.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const e = new Date(a.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -68,6 +72,23 @@ async function fetchAppointments(params: { start: string; end: string; provider?
   return j.data;
 }
 
+function buildSlotsForDay(day: Date, startHour = 9, endHour = 17, stepMin = 30) {
+  const slots: { start: Date; end: Date; label: string }[] = [];
+  const base = startOfDay(day);
+  const start = new Date(base);
+  start.setHours(startHour, 0, 0, 0);
+  const end = new Date(base);
+  end.setHours(endHour, 0, 0, 0);
+
+  let cur = new Date(start);
+  while (cur.getTime() < end.getTime()) {
+    const nxt = new Date(cur.getTime() + stepMin * 60 * 1000);
+    slots.push({ start: new Date(cur), end: nxt, label: formatTimeHM(cur) });
+    cur = nxt;
+  }
+  return slots;
+}
+
 export default function SchedulePage() {
   const [view, setView] = useState<"week" | "day">("week");
   const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()));
@@ -76,8 +97,9 @@ export default function SchedulePage() {
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [selected, setSelected] = useState<PanelAppointment | null>(null);
-
   const [draftCreate, setDraftCreate] = useState<{ startIso: string; endIso: string } | null>(null);
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const range = useMemo(() => {
     const start = startOfDay(anchor);
@@ -179,13 +201,10 @@ export default function SchedulePage() {
       updateAppointment(input.id, { startTime: input.startTime, endTime: input.endTime }),
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: apptKey });
-
       const prev = qc.getQueryData<Appointment[]>(apptKey) || [];
       const next = prev.map((a) => (a.id === input.id ? { ...a, startTime: input.startTime, endTime: input.endTime } : a));
       qc.setQueryData<Appointment[]>(apptKey, next);
-
       setSelected((p) => (p && p.id === input.id ? { ...p, startTime: input.startTime, endTime: input.endTime } : p));
-
       return { prev };
     },
     onError: (_err, _input, ctx) => {
@@ -202,6 +221,28 @@ export default function SchedulePage() {
       qc.invalidateQueries({ queryKey: ["appointments"] });
     },
   });
+
+  const slotLenMin = 30;
+
+  const handleDropToSlot = (slotStart: Date, slotEnd: Date) => {
+    if (!draggingId) return;
+    const appt = (apptsQ.data || []).find((x) => x.id === draggingId);
+    if (!appt) return;
+
+    const oldS = new Date(appt.startTime).getTime();
+    const oldE = new Date(appt.endTime).getTime();
+    const dur = Math.max(slotLenMin * 60 * 1000, oldE - oldS);
+
+    const newS = new Date(slotStart);
+    const newE = new Date(newS.getTime() + dur);
+
+    const ok = window.confirm(
+      `Reschedule ${appt.patientName}\nFrom ${formatTimeHM(new Date(appt.startTime))} to ${formatTimeHM(new Date(appt.endTime))}\nTo ${formatTimeHM(newS)} to ${formatTimeHM(newE)}?`
+    );
+    if (!ok) return;
+
+    rescheduleMut.mutate({ id: appt.id, startTime: newS.toISOString(), endTime: newE.toISOString() });
+  };
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -301,21 +342,25 @@ export default function SchedulePage() {
 
       <div className={`grid gap-3 ${view === "week" ? "sm:grid-cols-7" : "sm:grid-cols-1"}`}>
         {days.map((d) => {
-          const key = startOfDay(d).toISOString();
-          const items = byDay.get(key) || [];
+          const dayKey = startOfDay(d).toISOString();
+          const items = (byDay.get(dayKey) || []).slice().sort((a, b) => (a.startTime < b.startTime ? -1 : 1));
+          const slots = buildSlotsForDay(d, 9, 17, 30);
+
           return (
-            <div key={key} className={`rounded-lg border ${isToday(d) ? "border-black" : ""}`}>
+            <div key={dayKey} className={`rounded-lg border ${isToday(d) ? "border-black" : ""}`}>
               <div className="border-b px-3 py-2 text-sm font-medium">
                 {formatDayLabel(d)} {isToday(d) ? "• Today" : ""}
               </div>
-              <div className="p-3">
-                {apptsQ.isFetching && items.length === 0 && <div className="text-sm text-gray-600">Loading…</div>}
-                {!apptsQ.isFetching && items.length === 0 && <div className="text-sm text-gray-600">No appointments</div>}
+
+              <div className="p-3 space-y-3">
                 <div className="space-y-2">
                   {items.map((a) => (
                     <div
                       key={a.id}
-                      className={`cursor-pointer rounded-md border p-2 text-sm ${conflictIds.has(a.id) ? "border-red-500" : ""}`}
+                      draggable
+                      onDragStart={() => setDraggingId(a.id)}
+                      onDragEnd={() => setDraggingId(null)}
+                      className={`cursor-grab rounded-md border p-2 text-sm ${conflictIds.has(a.id) ? "border-red-500" : ""}`}
                       onClick={() => {
                         setDraftCreate(null);
                         setSelected(a as unknown as PanelAppointment);
@@ -333,7 +378,28 @@ export default function SchedulePage() {
                       {conflictIds.has(a.id) && <div className="mt-1 text-xs text-red-600">Conflict</div>}
                     </div>
                   ))}
+                  {apptsQ.isFetching && items.length === 0 && <div className="text-sm text-gray-600">Loading…</div>}
+                  {!apptsQ.isFetching && items.length === 0 && <div className="text-sm text-gray-600">No appointments</div>}
                 </div>
+
+                <div className="rounded-lg border">
+                  <div className="border-b px-3 py-2 text-xs text-gray-600">Drop to reschedule</div>
+                  <div className="divide-y">
+                    {slots.map((s) => (
+                      <div
+                        key={s.start.toISOString()}
+                        className={`flex items-center justify-between px-3 py-2 text-sm ${draggingId ? "bg-gray-50" : ""}`}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => handleDropToSlot(s.start, s.end)}
+                      >
+                        <div className="text-gray-700">{s.label}</div>
+                        <div className="text-xs text-gray-600">slot</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {rescheduleMut.isPending && draggingId && <div className="text-xs text-gray-600">Updating…</div>}
               </div>
             </div>
           );
