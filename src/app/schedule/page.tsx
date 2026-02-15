@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppointmentSidePanel, { type Appointment as PanelAppointment } from "@/components/AppointmentSidePanel";
+import { updateAppointment } from "@/lib/apiSchedule";
 
 type Provider = {
   id: string;
@@ -83,6 +84,11 @@ export default function SchedulePage() {
     return { start, end };
   }, [anchor, view]);
 
+  const apptKey = useMemo(
+    () => ["appointments", range.start.toISOString(), range.end.toISOString(), providerId, room] as const,
+    [range.start, range.end, providerId, room]
+  );
+
   const providersQ = useQuery({
     queryKey: ["providers"],
     queryFn: fetchProviders,
@@ -100,7 +106,7 @@ export default function SchedulePage() {
   }, [providersQ.data, providerId]);
 
   const apptsQ = useQuery({
-    queryKey: ["appointments", range.start.toISOString(), range.end.toISOString(), providerId, room],
+    queryKey: apptKey,
     queryFn: () =>
       fetchAppointments({
         start: range.start.toISOString(),
@@ -128,6 +134,30 @@ export default function SchedulePage() {
   }, [apptsQ.data]);
 
   const isToday = (d: Date) => startOfDay(d).getTime() === startOfDay(new Date()).getTime();
+
+  const qc = useQueryClient();
+
+  const rescheduleMut = useMutation({
+    mutationFn: (input: { id: string; startTime: string; endTime: string }) =>
+      updateAppointment(input.id, { startTime: input.startTime, endTime: input.endTime }),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: apptKey });
+
+      const prev = qc.getQueryData<Appointment[]>(apptKey) || [];
+      const next = prev.map((a) => (a.id === input.id ? { ...a, startTime: input.startTime, endTime: input.endTime } : a));
+      qc.setQueryData<Appointment[]>(apptKey, next);
+
+      setSelected((p) => (p && p.id === input.id ? { ...p, startTime: input.startTime, endTime: input.endTime } : p));
+
+      return { prev };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prev) qc.setQueryData(apptKey, ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] });
+    },
+  });
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -257,9 +287,9 @@ export default function SchedulePage() {
         appointment={selected}
         onClose={() => setPanelOpen(false)}
         onReschedule={({ id, startTime, endTime }) => {
-          setSelected((prev) => (prev && prev.id === id ? { ...prev, startTime, endTime } : prev));
-          apptsQ.refetch();
+          rescheduleMut.mutate({ id, startTime, endTime });
         }}
+        busy={rescheduleMut.isPending}
       />
     </div>
   );
